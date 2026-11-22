@@ -1,0 +1,9 @@
+xtLine
+{
+    type sets; libs ("libsampling.so");
+    writeControl runTime; writeInterval 5e-07;
+    interpolationScheme cellPoint; setFormat raw;
+    fields (p T Y);
+    sets ( chamber { type lineUniform; axis x;
+        start (0 0.005 5e-05); end (0.30 0.005 5e-05); nPoints 600; } );
+}

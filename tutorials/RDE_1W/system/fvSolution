@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers {}
+
+PIMPLE
+{
+    nRKStages           2;
+
+    // cdmGpuFoam computes the fluxes on the device, so the host-side
+    // positivity limiter cannot see them.  The first-order reconstruction
+    // fallback is still active and is reported as usual.
+    positivityLimiter { active no; }
+    viscous             yes;
+    chemistry           yes;
+    chemistrySplitting  Strang;
+
+    // The chamber is in the laboratory frame and the wave rotates through
+    // it, so the foil is recorded in place.  It ends up showing the track
+    // the detonation scours around the annulus, and the cell structure on it.
+    sootFoil
+    {
+        frameVelocity   (0 0 0);
+        min             (0 0);
+        max             (0.30 0.072);
+        delta           5e-5;       // = the finest cell
+    }
+
+    refinementIndicator
+    {
+        TReacting       500;
+        YReacting       1e-3;
+    }
+
+    // NOTE: the circumferential direction is cyclic, so "the furthest cell
+    // along x" wraps at the end of every lap and the reported speed has one
+    // bad sample per lap.  The probes in controlDict are the reliable
+    // measure of the rotation rate; this is here for the position.
+    shockTracking
+    {
+        direction       (1 0 0);
+        pThreshold      5e5;
+        window          200;
+    }
+}
+
+// ************************************************************************* //

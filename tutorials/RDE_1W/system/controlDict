@@ -1,0 +1,68 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format          ascii;
+    class           dictionary;
+    location        "system";
+    object          controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solver          CDMGpuFoam;
+
+startFrom       latestTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         0.00045;
+
+deltaT          1e-10;
+
+adjustTimeStep  yes;
+
+maxCo           0.4;
+
+maxDeltaT       1e-07;
+
+writeControl    adjustableRunTime;
+
+writeInterval   2.5e-05;
+
+purgeWrite      0;
+
+writeFormat     binary;
+
+writePrecision  10;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   8;
+
+runTimeModifiable true;
+
+functions
+{
+
+    probes
+    {
+        type            probes;
+        libs            ( "libsampling.so" );
+        writeControl    timeStep;
+        writeInterval   1;
+        fields          ( p T Y );
+        probeLocations  ( ( 0.05 0.005 5e-05 ) ( 0.15 0.005 5e-05 ) ( 0.25 0.005 5e-05 ) );
+    }
+}
+
+
+// ************************************************************************* //

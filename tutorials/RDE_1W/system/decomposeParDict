@@ -1,0 +1,51 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format          ascii;
+    class           dictionary;
+    location        "system";
+    object          decomposeParDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+numberOfSubdomains 96;
+
+decomposer      simple;
+
+simpleCoeffs
+{
+    n               ( 96 1 1 );
+}
+
+distributor     zoltan;
+
+zoltanCoeffs
+{
+    lb_method       graph;
+    lb_approach     repartition;
+}
+
+hierarchicalCoeffs
+{
+    n               ( 24 1 1 );
+    order           xyz;
+}
+
+libs            ( "libCDMDynamicMesh2D.so" "libzoltanDecomp.so" );
+
+constraints
+{
+    refinementHistory
+    {
+        type            refinementHistory2D;
+    }
+}
+
+
+// ************************************************************************* //

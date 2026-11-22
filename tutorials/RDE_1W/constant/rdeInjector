@@ -1,0 +1,27 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  13
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+p0              2e+06;
+
+T0              300;
+
+gamma           1.125;
+
+R               365.15;
+
+slotWidth       0.002;
+
+slotSpacing     0.004;
+
+slotOffset      0;
+
+tangent         ( 1 0 0 );
+
+chokedModel     saturating;
+
+
+// ************************************************************************* //

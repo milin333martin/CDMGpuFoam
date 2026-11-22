@@ -1,0 +1,97 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// The annulus is unrolled: x runs around the circumference and is cyclic,
+// y is the axial direction (injector at y = 0, exhaust at y = H).
+//
+//   L = 0.30 m circumference  = 20 calibrated cell widths (lambda = 1.5 cm)
+//   H = 0.072 m chamber height =  4.8 lambda
+//
+// See docs/10-rde.md on whether that height is enough for this mixture.
+
+convertToMeters 1;
+
+L       0.30;
+H       0.072;
+thick   1e-4;
+
+nx      750;        // 0.4 mm base cell; maxRefinement 3 -> 0.05 mm finest
+ny      180;        // 0.4 mm base cell; maxRefinement 3 -> 0.05 mm finest
+
+vertices
+(
+    (0      0      0     )
+    ($L     0      0     )
+    ($L     $H     0     )
+    (0      $H     0     )
+    (0      0      $thick)
+    ($L     0      $thick)
+    ($L     $H     $thick)
+    (0      $H     $thick)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (750 180 1) simpleGrading (1 1 1)
+);
+
+edges ();
+
+boundary
+(
+    inlet                       // the injector face
+    {
+        type            patch;
+        faces           ((0 1 5 4));
+    }
+
+    outlet                      // the exhaust
+    {
+        type            patch;
+        faces           ((3 7 6 2));
+    }
+
+    left
+    {
+        type            cyclic;
+        neighbourPatch  right;
+        faces           ((0 4 7 3));
+    }
+
+    right
+    {
+        type            cyclic;
+        neighbourPatch  left;
+        faces           ((1 2 6 5));
+    }
+
+    frontAndBack
+    {
+        type            empty;
+        faces           ((0 3 2 1) (4 5 6 7));
+    }
+
+    // Required by fvMeshDistribute for run-time redistribution
+    internalFaces
+    {
+        type            internal;
+        faces           ();
+    }
+);
+
+mergePatchPairs ();
+
+// ************************************************************************* //

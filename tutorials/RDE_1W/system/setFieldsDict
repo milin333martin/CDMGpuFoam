@@ -1,0 +1,78 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      setFieldsDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Start-up.  The chamber begins full of inert product gas at ambient
+// pressure, so the injector (p0 = 5 bar) is far above the chamber pressure
+// and starts flowing immediately.  Two patches are laid down:
+//
+//   1. a 10 mm layer of fresh reactant along the injector face, standing in
+//      for the fill that would otherwise take a lap to establish;
+//   2. a hot, high-pressure kernel at one end of that layer, with a
+//      circumferential velocity, to launch a wave travelling in +x.
+//
+// The kernel is a numerical ignition, not a model of a real igniter.  It is
+// deliberately over-driven; the wave relaxes to its own speed within a lap,
+// which is why the first lap is discarded when measuring anything.
+
+defaultFieldValues
+(
+    volScalarFieldValue p   101325
+    volScalarFieldValue T   298
+    volScalarFieldValue Y   0
+    volVectorFieldValue U   (0 0 0)
+);
+
+// NOTE: 0.0096 m = 12 x 0.8 mm = 24 x 0.4 mm, so the boxes hold a whole
+// number of cells on both base meshes.  boxToCell selects by cell centre,
+// so a box edge that falls mid-cell captures a different volume of hot gas
+// at different resolutions - which looks exactly like a physics result and
+// is not one.  Keep any box aligned to every mesh in a resolution study.
+regions
+(
+    // 1. the fresh layer along the injector
+    boxToCell
+    {
+        box (0 0 -1) (0.30 0.0096 1);
+        fieldValues
+        (
+            volScalarFieldValue Y   1
+        );
+    }
+
+    boxToCell
+    {
+        box (0.20 0 -1) (0.30 0.0096 1);
+        fieldValues
+        (
+            volScalarFieldValue Y   0
+        );
+    }
+
+    // 2. the ignition kernel
+    boxToCell
+    {
+        box (0 0 -1) (0.020 0.0096 1);
+        fieldValues
+        (
+            volScalarFieldValue p   3.0e6
+            volScalarFieldValue T   3000
+            volScalarFieldValue Y   1
+            volVectorFieldValue U   (1500 0 0)
+        );
+    }
+);
+
+// ************************************************************************* //

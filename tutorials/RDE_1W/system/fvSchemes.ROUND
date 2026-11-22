@@ -1,0 +1,69 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | ROUND reconstruction variant
+    \\  /    A nd           |
+     \\/     M anipulation  |
+-------------------------------------------------------------------------------
+    Drop-in replacement for system/fvSchemes using the ROUND schemes of
+    Deng (2023) in place of vanLeer.  To use it:
+
+        cd <case>
+        cp system/fvSchemes system/fvSchemes.vanLeer
+        cp system/fvSchemes.ROUND system/fvSchemes
+
+    No "libs" entry is needed: the schemes are compiled into
+    libCDMFluxSchemes.so, which the solver module already links.
+
+    Do not swap this in on a case that is already running.  See
+    docs/11-round.md for which variant to choose and what to watch.
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSchemes;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+fluxScheme      HLLCLM;         // HLLC | HLLCLM (shock-stable) | HLLCP (experimental)
+
+ddtSchemes          { default Euler; }
+gradSchemes         { default Gauss linear; }
+divSchemes          { default none; }
+laplacianSchemes    { default Gauss linear corrected; }
+snGradSchemes       { default corrected; }
+
+interpolationSchemes
+{
+    default         linear;
+
+    // ROUNDAplus is the sharpest member of the family that still stays
+    // inside the second-order TVD bound everywhere, so it cannot reconstruct
+    // past the neighbour cell value.  Against vanLeer it is far less
+    // dissipative at moderate gradient ratios (L = 0.95 against 0.67 at
+    // r = 0.5) while capping lower at steep ones (1.7 against 2.0), which is
+    // the combination that preserves cellular structure without adding
+    // oscillation at the shock.
+    //
+    // Alternatives, in increasing order of sharpness:
+    //   ROUNDF      cap 4/3, the gentlest; use if ROUNDAplus looks noisy
+    //   ROUNDA      cap 3/2
+    //   ROUNDAplus  cap 17/10                      <- the default here
+    //   ROUNDL      compressive, reaches 2.12: reconstructs PAST the
+    //               neighbour value.  Designed for contact and interface
+    //               preservation, not for a Riemann solver's input states.
+    //               If you try it, watch the first-order fallback count.
+    reconstruct(rho) ROUNDAplus;
+    reconstruct(U)  ROUNDAplusV;
+    reconstruct(p)  ROUNDAplus;
+
+    // Y is a mass fraction, so use the [0, 1]-bounded form.  fluxScheme
+    // clips Y into [0, 1] afterwards in any case, but bounding the
+    // reconstruction itself keeps the left and right states consistent with
+    // the limiter instead of silently truncating one of them.
+    reconstruct(Y)  ROUNDAplus01;
+}
+
+// ************************************************************************* //

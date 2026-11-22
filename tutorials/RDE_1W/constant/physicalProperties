@@ -1,0 +1,38 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      physicalProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+thermoType
+{
+    type            hePsiThermo;
+    mixture         pureMixture;
+    transport       const;          // not used: CDM transport is in CDMProperties
+    thermo          eConst;
+    equationOfState perfectGas;
+    specie          specie;
+    energy          sensibleInternalEnergy;
+}
+
+mixture
+{
+    specie          { molWeight 22.77; }
+    thermodynamics  { Cv 2921.1990; hf 0; }
+    transport       { mu 0; Pr 1; }
+}
+
+// R = Ru/Mw = 8314.46/22.77 = 365.15 J/(kg K).  The injector conditions in
+// 0/ must use this value, not 287: the gas is not air.
+
+// ************************************************************************* //

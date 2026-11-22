@@ -1,0 +1,59 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      p;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [1 -1 -2 0 0 0 0];
+
+internalField   uniform 101325;
+
+boundaryField
+{
+    inlet
+    {
+        type            rdeInletPressure;
+#include "$FOAM_CASE/constant/rdeInjector"
+        value           uniform 101325;
+    }
+
+    outlet
+    {
+        // Supersonic or near-sonic exhaust, so extrapolation is adequate.
+        // If the exhaust goes subsonic and reflections contaminate the
+        // chamber, swap in waveTransmissive (see docs/10-rde.md).
+        type            zeroGradient;
+    }
+
+    left
+    {
+        type            cyclic;
+    }
+
+    right
+    {
+        type            cyclic;
+    }
+
+    frontAndBack
+    {
+        type            empty;
+    }
+
+    internalFaces
+    {
+        type            internal;
+    }
+}
+
+// ************************************************************************* //

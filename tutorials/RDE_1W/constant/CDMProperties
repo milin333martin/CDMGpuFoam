@@ -1,0 +1,32 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | CDMGpuFoam tutorial (OpenFOAM-13)
+   \\    /   O peration     | RDE2D_T6: unrolled rotating detonation engine
+    \\  /    A nd           |
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      CDMProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Lu, Kaplan & Oran (2021), Table 6, stoichiometric H2-air, lambda-calibrated.
+//   D_CJ  = 1970.06 m/s      x_d    = 0.626 mm
+//   p_vn  = 33.51 p0         T_vn   = 883.9 K
+//   E     = Ta/T_vn = 13.48  lambda = 1.50 cm  (Eq. 11)
+
+A_cgs       1.01e12;
+EaByRT0     39.98;
+qMwByRT0    62.97;
+kappa0_cgs  2.00e-5;
+T0          298;
+
+n           0.7;
+Pr          1;
+Le          1;
+
+// ************************************************************************* //
