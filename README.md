@@ -91,9 +91,9 @@ tutorials/                     verification and demonstration cases
 
 ## 5. Tutorials
 
-| Case | What it checks |
+| Case | What it checks |\
 |---|---|\
-| `RDE2D_T6` | rotating detonation engine, unrolled annulus with a slot injector |
+| `RDE_1W` | rotating detonation engine, unrolled annulus with a slot injector |
 
 ## 6. References
 
