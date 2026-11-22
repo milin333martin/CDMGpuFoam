@@ -1,0 +1,11 @@
+CDMModel/CDMModel.C
+CDMCoupledTemperature/CDMCoupledTemperatureFvPatchScalarField.C
+sootFoil/sootFoil.C
+
+rdeInlet/rdeInjector.C
+rdeInlet/rdeInletPressureFvPatchScalarField.C
+rdeInlet/rdeInletTemperatureFvPatchScalarField.C
+rdeInlet/rdeInletVelocityFvPatchVectorField.C
+rdeInlet/rdeInletYFvPatchScalarField.C
+
+LIB = $(FOAM_USER_LIBBIN)/libCDMModels

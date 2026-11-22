@@ -1,0 +1,10 @@
+EXE_INC = \
+    -I../../../src/dynamicMesh2D/lnInclude \
+    -I$(LIB_SRC)/polyTopoChange/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude
+
+EXE_LIBS = \
+    -lpolyTopoChange \
+    -lmeshTools \
+    -L$(FOAM_USER_LIBBIN) \
+    -lCDMDynamicMesh2D

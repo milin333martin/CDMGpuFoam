@@ -1,0 +1,24 @@
+EXE_INC = \
+    -I../cdmFoam/lnInclude \
+    -I../../../src/gpu \
+    -I../../../src/CDMModels/lnInclude \
+    -I../../../src/fluxSchemes/lnInclude \
+    -I$(FOAM_MODULES)/fluidSolver/lnInclude \
+    -I$(LIB_SRC)/physicalProperties/lnInclude \
+    -I$(LIB_SRC)/thermophysicalModels/basic/lnInclude \
+    -I$(LIB_SRC)/finiteVolume/cfdTools \
+    -I$(LIB_SRC)/finiteVolume/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude
+
+LIB_LIBS = \
+    -lfluidSolver \
+    -lfluidThermophysicalModels \
+    -lfiniteVolume \
+    -lmeshTools \
+    -lfvModels \
+    -lfvConstraints \
+    -L$(FOAM_USER_LIBBIN) \
+    -lCDMModels \
+    -lCDMFluxSchemes \
+    -lcdmFoam \
+    -lCDMGpu

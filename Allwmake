@@ -1,0 +1,138 @@
+#!/bin/sh
+# CDMGpuFoam: build all libraries, the solver module and utilities
+cd ${0%/*} || exit 1
+
+if [ -z "$WM_PROJECT_DIR" ]
+then
+    echo "Source the OpenFOAM-13 environment first" 1>&2
+    exit 1
+fi
+
+set -e
+
+# A conda (or similar) environment ahead of the system toolchain supplies its
+# own linker, which cannot resolve the glibc symbols in an OpenFOAM built
+# against the system one ("undefined reference to hypot@GLIBC_2.xx").  Catch
+# it here rather than part way through the build.
+if [ -z "$CDMREACTFOAM_SKIP_ENV_CHECK" ]
+then
+    LD_PATH=$(command -v ld 2>/dev/null)
+    CC_PATH=$(command -v "${WM_CC:-gcc}" 2>/dev/null)
+    for p in "$LD_PATH" "$CC_PATH"
+    do
+        case "$p" in
+            */conda*/*|*/miniconda*/*|*/mambaforge*/*|*/anaconda*/*)
+                cat 1>&2 << ENVEOF
+A conda environment is providing the toolchain:
+    $p
+Its linker cannot link against an OpenFOAM built with the system compiler.
+
+    conda deactivate
+    source \$WM_PROJECT_DIR/etc/bashrc
+    ./Allwmake
+
+Set CDMREACTFOAM_SKIP_ENV_CHECK=1 to build anyway.
+ENVEOF
+                exit 1 ;;
+        esac
+    done
+fi
+
+wmake libso src/CDMModels
+wmake libso src/fluxSchemes
+
+# The Morton-key engine has its own Makefile rather than a wmake Make/
+# directory, because it is plain C++17 with no OpenFOAM headers and is also
+# built four other ways (serial, TBB, nvc++ multicore, nvc++ device) for
+# cross-checking.  "make foam" is the one that produces the shared library
+# the OpenFOAM side links, with the same compiler and the same -std as
+# wmake uses - cdmAmr::Mesh lives in a header both libraries include, so
+# two language standards would be an ODR violation.
+#
+# This was missing until a build on a machine that had never built it
+# before failed with "cannot find -lCDMAmr": on a development workstation
+# libCDMAmr.so had been sitting in $FOAM_USER_LIBBIN since the day it was
+# first built by hand, so the package could not build itself and nothing
+# said so.
+( cd src/amr && make foam ) || exit 1
+
+wmake libso src/dynamicMesh2D
+wmake libso applications/modules/cdmFoam
+wmake applications/utilities/setZNDProfile
+wmake applications/utilities/mapDetonation
+wmake applications/utilities/decomposeRefinementHistory2D
+
+# The GPU back end and the cdmGpuFoam solver module are optional, because the
+# back end may need a compiler the rest of the package does not (nvc++) and
+# because a machine with no device should still build everything else.
+#
+#     CDMREACTFOAM_GPU=serial    ./Allwmake   portable build, no SDK needed
+#     CDMREACTFOAM_GPU=parallel  ./Allwmake   every CPU core, needs libtbb-dev
+#     CDMREACTFOAM_GPU=multicore ./Allwmake   every CPU core, needs nvc++
+#     CDMREACTFOAM_GPU=gpu       ./Allwmake   one device,     needs nvc++
+#     CDMREACTFOAM_GPU=prebuilt  ./Allwmake   install the libCDMGpu.so that
+#                                             is already in src/gpu, and
+#                                             build cdmGpuFoam against it
+#
+# "prebuilt" exists for sites where the back end cannot be compiled in the
+# same module environment as OpenFOAM.  On TAMU Grace, for instance,
+# OpenFOAM-13 is provided under foss/2025b (GCC 14.3) while nvc++ lives in
+# the NVHPC module, and Lmod will not load both.  So src/gpu is built in one
+# environment and everything else in another.  This is safe precisely
+# because src/gpu exposes a plain C interface: there is no C++ ABI surface
+# between the two compilers.  libCDMAmr.so is the opposite case - it shares
+# cdmAmr::Mesh with libCDMDynamicMesh2D through a header - and must be built
+# by whichever compiler OpenFOAM was, which its "make foam" target does
+# automatically by using the g++ on PATH.
+#
+# Only CDMREACTFOAM_GPU=gpu uses the device.  "parallel" and "multicore" run
+# the same kernels on CPU threads and are stand-ins for testing, not GPU runs.
+# Pass device flags through CDMREACTFOAM_GPUFLAGS, e.g.
+#     CDMREACTFOAM_GPU=gpu CDMREACTFOAM_GPUFLAGS="-gpu=cc86,cuda12.9" ./Allwmake
+#
+# See src/gpu/README.md.
+if [ -n "$CDMREACTFOAM_GPU" ]
+then
+    echo
+    echo "building the GPU back end ($CDMREACTFOAM_GPU)"
+    case "$CDMREACTFOAM_GPU" in
+        serial)    ( cd src/gpu && make all ) ;;
+        parallel)  ( cd src/gpu && make parallel ) ;;
+        multicore) ( cd src/gpu && make multicore ) ;;
+        gpu)       ( cd src/gpu && make gpu ${CDMREACTFOAM_GPUFLAGS:+GPUFLAGS="$CDMREACTFOAM_GPUFLAGS"} ) ;;
+        prebuilt)
+            if [ -f src/gpu/libCDMGpu.so ]
+            then
+                echo "    using src/gpu/libCDMGpu.so as already built"
+            else
+                echo "CDMREACTFOAM_GPU=prebuilt but src/gpu/libCDMGpu.so does not exist." 1>&2
+                echo "Build it first in an environment that has nvc++:" 1>&2
+                echo "    ( cd src/gpu && make gpu GPUFLAGS=\"-gpu=cc80\" )" 1>&2
+                exit 1
+            fi ;;
+        *) echo "CDMREACTFOAM_GPU must be serial, parallel, multicore, gpu or prebuilt" 1>&2
+           exit 1 ;;
+    esac
+    ( cd src/gpu && make install )
+    wmake libso applications/modules/cdmGpuFoam
+
+    # The per-rank GPU binding wrapper goes where the solver went, because
+    # it has to be on PATH on every compute node of a job and
+    # $FOAM_USER_APPBIN already is.
+    if [ -n "$FOAM_USER_APPBIN" ]
+    then
+        mkdir -p "$FOAM_USER_APPBIN"
+        cp bin/cdmGpuBind "$FOAM_USER_APPBIN/cdmGpuBind"
+        chmod +x "$FOAM_USER_APPBIN/cdmGpuBind"
+    fi
+
+    echo
+    echo "cdmGpuFoam built.  Run a case with:  solver cdmGpuFoam;  in controlDict"
+    echo "  serial:   foamRun"
+    echo "  parallel: mpirun -np N cdmGpuBind foamRun -parallel"
+    echo "            (cdmGpuBind gives each rank one GPU; without it every"
+    echo "             rank on a node shares device 0)"
+fi
+
+echo
+echo "CDMGpuFoam built. Run a case with:  foamRun   (solver cdmFoam;)"

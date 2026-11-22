@@ -1,0 +1,9 @@
+cdmFoam.C
+decode.C
+advance.C
+diagnostics.C
+positivity.C
+fronts.C
+CHT.C
+
+LIB = $(FOAM_USER_LIBBIN)/libcdmFoam

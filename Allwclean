@@ -1,0 +1,10 @@
+#!/bin/sh
+cd ${0%/*} || exit 1
+wclean src/CDMModels
+wclean src/fluxSchemes
+wclean src/dynamicMesh2D
+wclean applications/modules/cdmFoam
+wclean applications/utilities/setZNDProfile
+wclean applications/utilities/mapDetonation
+wclean applications/utilities/decomposeRefinementHistory2D
+rm -rf src/*/lnInclude

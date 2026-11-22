@@ -1,0 +1,279 @@
+### STRUCT_NEW
+    // mesh
+    int nCells = 0, nIF = 0, nBF = 0, nBC = 0;
+    std::vector<int> bCell;
+
+    //- Halo ghost cells, one per processor-patch face.  They occupy cell
+    //  indices [nCells, nCells + nHalo) and exist only to be read as the
+    //  neighbour of a processor face: they carry a primitive state and a
+    //  gradient, which is the entire stencil a face needs, and they are
+    //  never written by any pass because every pass loops over nCells.
+    int nHalo = 0;
+    std::vector<int> hCell;
+
+    //- Contiguous staging for the boundary-cell exchange, so the host never
+    //  touches a strided subset of a device-resident field
+    std::vector<double> bcsRho, bcsU, bcsP, bcsT, bcsY;
+
+    //- The same, for the cells whose state and gradient this rank sends to
+    //  its neighbours
+    std::vector<double> hsRho, hsU, hsP, hsT, hsY;
+    std::vector<double> hsGRho, hsGU, hsGP, hsGY;
+### ALLOCATE_NEW
+        // nT covers the halo ghosts as well.  Only the fields a face reads
+        // for its neighbour are extended: the primitives and the gradients.
+        // The conserved state, the volumes and the right-hand sides are
+        // written by passes that loop over real cells, so a ghost has no
+        // use for them and is not given one.
+        const int nT = nCells + nHalo;
+
+        rho.assign(nT, 0.0);      rhoU.assign(3*nCells, 0.0);
+        rhoE.assign(nCells, 0.0); rhoY.assign(nCells, 0.0);
+        rho0 = rho; rhoU0 = rhoU; rhoE0 = rhoE; rhoY0 = rhoY;
+
+        U.assign(3*nT, 0.0);      p.assign(nT, 0.0);
+        T.assign(nT, 0.0);        Y.assign(nT, 0.0);
+        c.assign(nT, 0.0);        Qdot.assign(nCells, 0.0);
+
+        gRho.assign(3*nT, 0.0); gU.assign(9*nT, 0.0);
+        gP.assign(3*nT, 0.0);   gY.assign(3*nT, 0.0);
+### KERNELS_HALO_BLOCK
+// * * * * * * * * * * * * * * * * halo exchange * * * * * * * * * * * * * * //
+//
+// A processor face is an internal face whose neighbour lives on another
+// rank.  Giving the device a ghost cell for that neighbour makes it an
+// ordinary internal face and no kernel needs to know the difference - the
+// same move the cyclic seam already uses, and for the same reason: one
+// physical face must produce one flux, or mass leaks across the seam
+// wherever the solution is not smooth, which at a detonation front is
+// everywhere that matters.
+//
+// The reconstruction reads exactly two things per side, the cell value and
+// the cell gradient, so a ghost needs exactly those two and nothing else.
+// Both ranks then evaluate the same expression from the same inputs and get
+// a bit-identical flux rather than a nearly equal one.  A second layer of
+// halo, which the gradient would otherwise need, is never required.
+
+void cdmGpuSetHaloCells(cdmGpuCase* c, int n, const int* cells)
+{
+    c->hCell.assign(cells, cells + n);
+
+    c->hsRho.assign(n, 0.0);    c->hsU.assign(3*n, 0.0);
+    c->hsP.assign(n, 0.0);      c->hsT.assign(n, 0.0);
+    c->hsY.assign(n, 0.0);
+    c->hsGRho.assign(3*n, 0.0); c->hsGU.assign(9*n, 0.0);
+    c->hsGP.assign(3*n, 0.0);   c->hsGY.assign(3*n, 0.0);
+}
+
+
+void cdmGpuDownloadHaloCells
+(
+    cdmGpuCase* c,
+    double* rho, double* U, double* p, double* T, double* Y,
+    double* gRho, double* gU, double* gP, double* gY
+)
+{
+    const int n = static_cast<int>(c->hCell.size());
+    if (n == 0) { return; }
+
+    const int* hc = c->hCell.data();
+
+    const double *rhoD = c->rho.data(), *UD = c->U.data(), *pD = c->p.data();
+    const double *TD = c->T.data(), *YD = c->Y.data();
+    const double *gRD = c->gRho.data(), *gUD = c->gU.data();
+    const double *gPD = c->gP.data(), *gYD = c->gY.data();
+
+    double *sR = c->hsRho.data(), *sU = c->hsU.data(), *sP = c->hsP.data();
+    double *sT = c->hsT.data(), *sY = c->hsY.data();
+    double *sGR = c->hsGRho.data(), *sGU = c->hsGU.data();
+    double *sGP = c->hsGP.data(), *sGY = c->hsGY.data();
+
+    pfor(n, [=](int i)
+    {
+        const int ci = hc[i];
+        sR[i] = rhoD[ci];
+        sP[i] = pD[ci];
+        sT[i] = TD[ci];
+        sY[i] = YD[ci];
+        for (int d = 0; d < 3; ++d)
+        {
+            sU[3*i + d]  = UD[3*ci + d];
+            sGR[3*i + d] = gRD[3*ci + d];
+            sGP[3*i + d] = gPD[3*ci + d];
+            sGY[3*i + d] = gYD[3*ci + d];
+        }
+        for (int d = 0; d < 9; ++d) { sGU[9*i + d] = gUD[9*ci + d]; }
+    });
+
+    std::copy(c->hsRho.begin(),  c->hsRho.end(),  rho);
+    std::copy(c->hsU.begin(),    c->hsU.end(),    U);
+    std::copy(c->hsP.begin(),    c->hsP.end(),    p);
+    std::copy(c->hsT.begin(),    c->hsT.end(),    T);
+    std::copy(c->hsY.begin(),    c->hsY.end(),    Y);
+    std::copy(c->hsGRho.begin(), c->hsGRho.end(), gRho);
+    std::copy(c->hsGU.begin(),   c->hsGU.end(),   gU);
+    std::copy(c->hsGP.begin(),   c->hsGP.end(),   gP);
+    std::copy(c->hsGY.begin(),   c->hsGY.end(),   gY);
+}
+
+
+void cdmGpuUploadHalo
+(
+    cdmGpuCase* c,
+    const double* rho, const double* U, const double* p, const double* T,
+    const double* Y,
+    const double* gRho, const double* gU, const double* gP, const double* gY
+)
+{
+    const int nC = c->nCells, nH = c->nHalo;
+    if (nH == 0) { return; }
+
+    std::copy(rho,  rho  +   nH, c->rho.begin()  +   nC);
+    std::copy(U,    U    + 3*nH, c->U.begin()    + 3*nC);
+    std::copy(p,    p    +   nH, c->p.begin()    +   nC);
+    std::copy(T,    T    +   nH, c->T.begin()    +   nC);
+    std::copy(Y,    Y    +   nH, c->Y.begin()    +   nC);
+    std::copy(gRho, gRho + 3*nH, c->gRho.begin() + 3*nC);
+    std::copy(gU,   gU   + 9*nH, c->gU.begin()   + 9*nC);
+    std::copy(gP,   gP   + 3*nH, c->gP.begin()   + 3*nC);
+    std::copy(gY,   gY   + 3*nH, c->gY.begin()   + 3*nC);
+
+    // The sound speed of a ghost follows from its own state, so it is not
+    // sent.  Deriving it rather than transferring it also guarantees the
+    // two ranks agree on it exactly.
+    const double gam = c->gamma;
+    double* cs = c->c.data();
+    const double* rhoD = c->rho.data();
+    const double* pD = c->p.data();
+
+    pfor(nH, [=](int h)
+    {
+        const int i = nC + h;
+        cs[i] = std::sqrt(gam*pD[i]/rhoD[i]);
+    });
+}
+
+
+/*- The cell-gradient pass on its own.  A parallel run calls this, exchanges
+    the gradients of the cells behind each processor patch, uploads them into
+    the ghosts, and only then forms the fluxes.
+
+    cdmGpuComputeRHS recomputes these gradients, which costs a second pass
+    but writes only indices below nCells - so the ghost gradients uploaded in
+    between survive it untouched, and no kernel had to change. */
+void cdmGpuComputeGradients(cdmGpuCase* c)
+{
+    const int nC = c->nCells, nIF = c->nIF;
+
+    const int *own = c->own.data(), *nei = c->nei.data();
+    const int *cfOff = c->cfOff.data(), *cfFace = c->cfFace.data();
+    const signed char* cfSign = c->cfSign.data();
+    const double *Sf = c->Sf.data(), *wgt = c->wgt.data();
+    const double *V = c->V.data(), *bSf = c->bSf.data();
+
+    const double *rho = c->rho.data(), *U = c->U.data(), *p = c->p.data();
+    const double *Y = c->Y.data();
+    const double *bRho = c->bRho.data(), *bU = c->bU.data();
+    const double *bP = c->bP.data(), *bY = c->bY.data();
+
+    double *gRho = c->gRho.data(), *gU = c->gU.data();
+    double *gP = c->gP.data(), *gY = c->gY.data();
+
+    pfor(nC, [=](int i)
+    {
+        double ar[3] = {0,0,0}, ap[3] = {0,0,0}, ay[3] = {0,0,0};
+        double au[9] = {0,0,0,0,0,0,0,0,0};
+
+        for (int k = cfOff[i]; k < cfOff[i+1]; ++k)
+        {
+            const int f = cfFace[k];
+            const double s = double(cfSign[k]);
+
+            double rf, pf, yf, uf[3], S[3];
+
+            if (f < nIF)
+            {
+                const int P = own[f], N = nei[f];
+                const double w = wgt[f], w1 = 1.0 - w;
+                rf = w*rho[P] + w1*rho[N];
+                pf = w*p[P]   + w1*p[N];
+                yf = w*Y[P]   + w1*Y[N];
+                for (int d = 0; d < 3; ++d)
+                {
+                    uf[d] = w*U[3*P+d] + w1*U[3*N+d];
+                    S[d] = Sf[3*f+d];
+                }
+            }
+            else
+            {
+                const int b = f - nIF;
+                rf = bRho[b]; pf = bP[b]; yf = bY[b];
+                for (int d = 0; d < 3; ++d)
+                {
+                    uf[d] = bU[3*b+d];
+                    S[d] = bSf[3*b+d];
+                }
+            }
+
+            for (int d = 0; d < 3; ++d)
+            {
+                const double sS = s*S[d];
+                ar[d] += sS*rf;
+                ap[d] += sS*pf;
+                ay[d] += sS*yf;
+                for (int e = 0; e < 3; ++e) { au[3*d+e] += sS*uf[e]; }
+            }
+        }
+
+        const double iV = 1.0/V[i];
+        for (int d = 0; d < 3; ++d)
+        {
+            gRho[3*i+d] = ar[d]*iV;
+            gP[3*i+d]   = ap[d]*iV;
+            gY[3*i+d]   = ay[d]*iV;
+            for (int e = 0; e < 3; ++e) { gU[9*i+3*d+e] = au[3*d+e]*iV; }
+        }
+    });
+}
+### HEADER_SIG_NEW
+    cdmGpuCase* c,
+    int nCells,
+    int nHalo,                   /* ghost cells for processor faces; 0 in
+                                    serial.  They occupy cell indices
+                                    [nCells, nCells+nHalo) and are read only
+                                    as the neighbour of a processor face. */
+    int nInternalFaces,
+    int nBoundaryFaces,
+### HEADER_DECLS
+/*- The cells whose state and gradient this rank sends to its neighbours,
+    de-duplicated, in the order the solver wants them back.  The mirror of
+    cdmGpuSetBoundaryCells, for the halo rather than for patch evaluation. */
+void cdmGpuSetHaloCells(cdmGpuCase* c, int nHaloCells, const int* cells);
+
+/*- Primitives and gradients of those cells, in cdmGpuSetHaloCells order */
+void cdmGpuDownloadHaloCells
+(
+    cdmGpuCase* c,
+    double* rho, double* U, double* p, double* T, double* Y,
+    double* gRho, double* gU, double* gP, double* gY
+);
+
+/*- Fill the ghosts from what the neighbouring ranks sent.  nHalo entries
+    each, in the order the processor faces were given to cdmGpuSetMesh.  The
+    sound speed is derived here rather than transferred, so both ranks agree
+    on it exactly. */
+void cdmGpuUploadHalo
+(
+    cdmGpuCase* c,
+    const double* rho, const double* U, const double* p, const double* T,
+    const double* Y,
+    const double* gRho, const double* gU, const double* gP, const double* gY
+);
+
+/*- The cell-gradient pass alone.  A parallel step runs this, exchanges the
+    halo, uploads it, then calls cdmGpuComputeRHS as usual: that recomputes
+    these gradients but writes only indices below nCells, so the ghosts it
+    then reads are the exchanged ones. */
+void cdmGpuComputeGradients(cdmGpuCase* c);
+
+### END

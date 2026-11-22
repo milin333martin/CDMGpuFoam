@@ -1,0 +1,83 @@
+#!/bin/sh
+#------------------------------------------------------------------------------
+# cdmGpuBind - give each MPI rank one GPU, then exec the real command.
+#
+#     mpirun -np 8 cdmGpuBind foamRun -parallel
+#     srun   -n 8 cdmGpuBind foamRun -parallel
+#
+# nvc++ -stdpar offers no way to choose a device from inside the program: the
+# runtime takes whatever CUDA presents as device 0.  So the binding has to
+# happen before the process starts, by narrowing CUDA_VISIBLE_DEVICES to
+# exactly one device per rank.  Without this, every rank on a node runs on
+# the same GPU - correct, and slow in a way that looks like poor scaling
+# rather than like a configuration error.
+#
+# The node-local rank comes from whichever launcher is in use.  Open MPI,
+# MVAPICH, MPICH and SLURM each name it differently and none is reliably
+# present, so they are tried in turn.
+#
+# Environment:
+#   CDM_GPUS_PER_NODE  devices per node; counted with nvidia-smi if unset
+#   CDM_LOCAL_RANK     node-local rank, if your launcher exports none of the
+#                      names below
+#   CDM_SHARE_GPU=1    silence the warning when ranks outnumber devices
+#   CDM_BIND_QUIET=1   do not print the binding line
+#------------------------------------------------------------------------------
+
+local_rank=""
+rank_src=""
+
+for v in OMPI_COMM_WORLD_LOCAL_RANK MV2_COMM_WORLD_LOCAL_RANK MPI_LOCALRANKID SLURM_LOCALID CDM_LOCAL_RANK
+do
+    val=$(printenv "$v" 2>/dev/null)
+    if [ -n "$val" ]
+    then
+        local_rank="$val"
+        rank_src="$v"
+        break
+    fi
+done
+
+if [ -z "$local_rank" ]
+then
+    echo "cdmGpuBind: no node-local rank in the environment." >&2
+    echo "  Tried OMPI_COMM_WORLD_LOCAL_RANK, MV2_COMM_WORLD_LOCAL_RANK," >&2
+    echo "  MPI_LOCALRANKID, SLURM_LOCALID and CDM_LOCAL_RANK.  Binding to" >&2
+    echo "  device 0; set CDM_LOCAL_RANK if your launcher uses another name." >&2
+    local_rank=0
+    rank_src="default"
+fi
+
+# Devices per node.  Counted here, before CUDA_VISIBLE_DEVICES is narrowed,
+# because afterwards nvidia-smi would only report the one device left.
+if [ -n "$CDM_GPUS_PER_NODE" ]
+then
+    n_gpu="$CDM_GPUS_PER_NODE"
+else
+    n_gpu=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU')
+fi
+
+case "$n_gpu" in
+    '' | *[!0-9]* | 0) n_gpu=1 ;;
+esac
+
+CUDA_VISIBLE_DEVICES=$(( local_rank % n_gpu ))
+export CUDA_VISIBLE_DEVICES
+
+if [ "${CDM_BIND_QUIET:-0}" != "1" ]
+then
+    echo "cdmGpuBind: $(hostname) local rank $local_rank (from $rank_src)" \
+         "-> GPU $CUDA_VISIBLE_DEVICES of $n_gpu" >&2
+fi
+
+# More ranks than devices is legitimate - it is how the single-GPU
+# correctness tests run - but in a batch job it is nearly always a mistake in
+# the submission script, and one that masquerades as a scaling result.
+if [ "$local_rank" -ge "$n_gpu" ] && [ "${CDM_SHARE_GPU:-0}" != "1" ]
+then
+    echo "cdmGpuBind: WARNING local rank $local_rank shares GPU" \
+         "$CUDA_VISIBLE_DEVICES with another rank; only $n_gpu device(s)" \
+         "on this node.  Set CDM_SHARE_GPU=1 if that is deliberate." >&2
+fi
+
+exec "$@"

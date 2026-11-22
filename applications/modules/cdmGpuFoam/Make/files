@@ -1,0 +1,3 @@
+cdmGpuFoam.C
+
+LIB = $(FOAM_USER_LIBBIN)/libcdmGpuFoam

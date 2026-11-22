@@ -1,0 +1,18 @@
+EXE_INC = \
+    -fopenmp \
+    -I../amr \
+    -I$(LIB_SRC)/triSurface/lnInclude \
+    -I$(LIB_SRC)/polyTopoChange/lnInclude \
+    -I$(LIB_SRC)/parallel/decompose/decompositionMethods/lnInclude \
+    -I$(LIB_SRC)/finiteVolume/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude
+
+LIB_LIBS = \
+    -fopenmp \
+    -L$(FOAM_USER_LIBBIN) -lCDMAmr \
+    -ltriSurface \
+    -lpolyTopoChange \
+    -ldecompositionMethods \
+    -lfiniteVolume \
+    -lmeshTools \
+    -lfvMeshStitchers

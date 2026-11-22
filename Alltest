@@ -1,0 +1,134 @@
+#!/bin/sh
+#------------------------------------------------------------------------------
+# Alltest: check that an installed CDMGpuFoam works.
+#
+#     ./Alltest           both tests (about 5 minutes, serial)
+#     ./Alltest -k        keep the test cases instead of deleting them
+#
+# 1. ZND1D_stable       a 1D detonation on a stable gas; the computed speed
+#                       must be within 1% of D_CJ = 1967.15 m/s
+# 2. the CHT slab       hot gas on a steel plate; the interface temperature
+#                       must be within 2% of the analytic contact value
+#------------------------------------------------------------------------------
+cd ${0%/*} || exit 1
+HERE=$(pwd)
+
+[ -n "$WM_PROJECT_DIR" ] || {
+    echo "Source the OpenFOAM-13 environment first" >&2; exit 1; }
+command -v foamRun > /dev/null || {
+    echo "foamRun not found: is OpenFOAM-13 in the environment?" >&2; exit 1; }
+command -v mapDetonation > /dev/null || {
+    echo "CDMGpuFoam is not installed: run ./Allwmake first" >&2; exit 1; }
+python3 -c "import numpy, scipy" 2>/dev/null || {
+    cat >&2 << DEPEOF
+Test 1 needs numpy and scipy for tools/CDM_ZND.py (the ZND profile):
+
+    python3 -m pip install --user numpy scipy
+
+DEPEOF
+    exit 1; }
+
+
+# A conda (or similar) environment ahead of the system toolchain supplies its
+# own linker, which cannot resolve the glibc symbols in an OpenFOAM built
+# against the system one ("undefined reference to hypot@GLIBC_2.xx").  Catch
+# it here rather than part way through the build.
+if [ -z "$CDMREACTFOAM_SKIP_ENV_CHECK" ]
+then
+    LD_PATH=$(command -v ld 2>/dev/null)
+    CC_PATH=$(command -v "${WM_CC:-gcc}" 2>/dev/null)
+    for p in "$LD_PATH" "$CC_PATH"
+    do
+        case "$p" in
+            */conda*/*|*/miniconda*/*|*/mambaforge*/*|*/anaconda*/*)
+                cat 1>&2 << ENVEOF
+A conda environment is providing the toolchain:
+    $p
+Its linker cannot link against an OpenFOAM built with the system compiler.
+
+    conda deactivate
+    source \$WM_PROJECT_DIR/etc/bashrc
+    ./Alltest
+
+Set CDMREACTFOAM_SKIP_ENV_CHECK=1 to build anyway.
+ENVEOF
+                exit 1 ;;
+        esac
+    done
+fi
+
+KEEP=no
+[ "$1" = "-k" ] && KEEP=yes
+
+# the tutorials take their ZND calculator from here, not from $HOME
+CDMREACTFOAM_DIR=$HERE
+export CDMREACTFOAM_DIR
+
+PASS=0
+FAIL=0
+TMP=$HERE/Alltest.tmp
+rm -rf "$TMP" && mkdir -p "$TMP"
+
+report()   # report <name> <value> <expected> <tolerance %> <unit>
+{
+    ok=$(awk -v v="$2" -v e="$3" -v t="$4" \
+         'BEGIN { d = (v-e)/e; if (d < 0) d = -d; print (d*100 <= t) ? 1 : 0 }')
+    d=$(awk -v v="$2" -v e="$3" 'BEGIN { printf "%+.2f", 100*(v-e)/e }')
+    if [ "$ok" = 1 ]; then
+        echo "  PASS  $1: $2 $5 (expected $3, $d%)"
+        PASS=$((PASS+1))
+    else
+        echo "  FAIL  $1: $2 $5 (expected $3, $d%)"
+        FAIL=$((FAIL+1))
+    fi
+}
+
+echo
+echo "1/2  1D detonation on a stable gas (tutorials/ZND1D_stable)"
+cp -r tutorials/ZND1D_stable "$TMP/znd" && cd "$TMP/znd"
+if ./Allrun > log.Allrun 2>&1; then
+    D=$(grep "Leading shock" log.foamRun | tail -1 | awk '{print $(NF-1)}')
+    [ -n "$D" ] && report "detonation speed" "$D" 1967.15 1 "m/s" \
+        || { echo "  FAIL  no speed in the log"; FAIL=$((FAIL+1)); }
+else
+    LOG=$TMP/znd/log.Allrun
+    for l in log.foamRun log.setZNDProfile log.blockMesh log.CDM_ZND
+    do
+        [ -s "$TMP/znd/$l" ] && LOG=$TMP/znd/$l && break
+    done
+    echo "  FAIL  the run did not finish; last log: $LOG"
+    echo "        --- tail ---"
+    tail -15 "$LOG" 2>/dev/null | sed 's|^|        |'
+    FAIL=$((FAIL+1))
+fi
+cd "$HERE"
+
+echo
+echo "2/2  conjugate heat transfer slab (tools/makeCHTTest.sh)"
+cd "$TMP"
+if "$HERE/tools/makeCHTTest.sh" -n cht > log.cht 2>&1; then
+    EXPECT=$(grep "EXPECTED interface" log.cht | awk '{print $(NF-1)}')
+    TI=$(cd cht && foamPostProcess -region fluid \
+         -func "patchAverage(T, patch=fluid_to_solid)" -latestTime 2>/dev/null \
+         | awk '/areaAverage/ { v = $NF } END { print v }')
+    if [ -n "$TI" ] && [ -n "$EXPECT" ]; then
+        report "interface temperature" "$TI" "$EXPECT" 2 "K"
+    else
+        echo "  FAIL  no interface temperature (see $TMP/log.cht)"
+        FAIL=$((FAIL+1))
+    fi
+else
+    echo "  FAIL  the test did not finish (see $TMP/log.cht)"
+    FAIL=$((FAIL+1))
+fi
+cd "$HERE"
+
+echo
+echo "$PASS passed, $FAIL failed"
+if [ "$KEEP" = yes ] || [ "$FAIL" -gt 0 ]
+then
+    echo "test cases kept in $TMP"
+else
+    rm -rf "$TMP"
+fi
+[ "$FAIL" -eq 0 ]
